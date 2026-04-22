@@ -29,6 +29,9 @@ struct abuf {
 
 struct editorConfig E;
 
+/*** prototypes ***/
+void editorSetStatusMessage(const char *fmt, ...);
+
 typedef struct erow {
     int size;
     int rsize;
@@ -72,6 +75,7 @@ struct editorConfig {
     int screencols;
     int numrows;
     erow *row;
+    int dirty;
     char *filename;
     char statusmsg[80];
     time_t statusmsg_time;
@@ -101,7 +105,7 @@ void enableRawMode() {
    raw.c_iflag &= ~(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
    raw.c_oflag &= ~(OPOST);
    raw.c_cflag |= (CS8);
-   raw.c_lflag &= ~(ICANON | IEXTEN | ISIG);
+   raw.c_lflag &= ~(ECHO | ICANON | IEXTEN | ISIG);
 
    raw.c_cc[VMIN] = 0;
    raw.c_cc[VTIME] = 1;
@@ -206,6 +210,7 @@ void editorProcessKeypress() {
         case '\r':
             /* to do */
             break;
+
         case CTRL_KEY('q'):
             write(STDOUT_FILENO, "\x1b[2J", 4);
             write(STDOUT_FILENO, "\x1b[H", 3);
@@ -271,8 +276,9 @@ void editorSetStatusMessage(const char *fmt, ...) {
 void editorDrawStatusBar(struct abuf *ab) {
   abAppend(ab, "\x1b[7m", 4);
   char status[80], rstatus[80];
-  int len = snprintf(status, sizeof(status), "%.20s - %d lines",
-    E.filename ? E.filename : "[No Name]", E.numrows);
+  int len = snprintf(status, sizeof(status), "%.20s - %d lines %s",
+    E.filename ? E.filename : "[No Name]", E.numrows,
+    E.dirty ? "(modified)" : "");
   int rlen = snprintf(rstatus, sizeof(rstatus), "%d/%d",
     E.cy + 1, E.numrows);
   if (len > E.screencols) len = E.screencols;
@@ -433,6 +439,7 @@ void editorAppendRow(char *s, size_t len) {
     editorUpdateRow(&E.row[at]);
 
     E.numrows++;
+    E.dirty++;
 }
 
 void editorInsertChar(int c) {
@@ -450,6 +457,7 @@ void editorRowInsertChar(erow *row, int at, int c) {
     row->size++;
     row->chars[at] = c;
     editorUpdateRow(row);
+    E.dirty++;
 }
 
 /*** file i/o ***/
@@ -474,6 +482,7 @@ void editorOpen(char *filename) {
     }
     free(line);
     fclose(fp);
+    E.dirty = 0;
 }
 
 char *editorRowsToString(int *buflen) {
@@ -496,6 +505,7 @@ char *editorRowsToString(int *buflen) {
 }
 
 void editorSave() {
+    E.filename = "test";
     if (E.filename == NULL) return;
 
     int len;
@@ -507,6 +517,7 @@ void editorSave() {
             if (write(fd, buf, len) == len) {
                 close(fd);
                 free(buf);
+                E.dirty = 0;
                 editorSetStatusMessage("%d bytes written to disk", len);
                 return;
             }
@@ -526,6 +537,7 @@ void initEditor() {
     E.coloff = 0;
     E.numrows = 0;
     E.row = NULL;
+    E.dirty = 0;
     E.filename = NULL;
     E.statusmsg[0] = '\0';
     E.statusmsg_time = 0;
